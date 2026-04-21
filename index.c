@@ -189,20 +189,22 @@ static int compare_entries_by_path(const void *a, const void *b) {
 // Save the index to .pes/index atomically.
 // Returns 0 on success, -1 on error.
 int index_save(const Index *index) {
-    // Sort entries by path
-    Index sorted = *index;
-    qsort(sorted.entries, sorted.count, sizeof(IndexEntry), compare_entries_by_path);
+    // Allocate sorted copy on the HEAP — Index is ~5.6MB, too large for the stack
+    Index *sorted = malloc(sizeof(Index));
+    if (!sorted) return -1;
+    *sorted = *index;
+    qsort(sorted->entries, sorted->count, sizeof(IndexEntry), compare_entries_by_path);
 
     // Write to a temp file
     char tmp_path[256];
     snprintf(tmp_path, sizeof(tmp_path), "%s.tmp", INDEX_FILE);
 
     FILE *f = fopen(tmp_path, "w");
-    if (!f) return -1;
+    if (!f) { free(sorted); return -1; }
 
     char hex[HASH_HEX_SIZE + 1];
-    for (int i = 0; i < sorted.count; i++) {
-        const IndexEntry *entry = &sorted.entries[i];
+    for (int i = 0; i < sorted->count; i++) {
+        const IndexEntry *entry = &sorted->entries[i];
         hash_to_hex(&entry->hash, hex);
         fprintf(f, "%o %s %llu %u %s\n",
                 entry->mode,
@@ -216,6 +218,7 @@ int index_save(const Index *index) {
     fflush(f);
     fsync(fileno(f));
     fclose(f);
+    free(sorted);
 
     // Atomically rename temp file over the old index
     if (rename(tmp_path, INDEX_FILE) != 0) {
@@ -225,6 +228,7 @@ int index_save(const Index *index) {
 
     return 0;
 }
+
 
 // ─── IMPLEMENTED: index_add ──────────────────────────────────────────────────
 
